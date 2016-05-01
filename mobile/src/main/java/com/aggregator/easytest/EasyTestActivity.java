@@ -1,15 +1,34 @@
 package com.aggregator.easytest;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.support.design.widget.FloatingActionButton;
-import android.support.design.widget.Snackbar;
+import android.preference.PreferenceManager;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
-import android.view.View;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.widget.ProgressBar;
+import android.widget.TextView;
+
+import com.aggregator.easytest.gcm.RegistrationIntentService;
+import com.aggregator.easytest.preferences.EasyTestPreferences;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GoogleApiAvailability;
 
 public class EasyTestActivity extends AppCompatActivity {
+
+    private static final int PLAY_SERVICES_RESOLUTION_REQUEST = 9000;
+
+    private boolean isReceiverRegistered;
+    private BroadcastReceiver registrationBroadcastReceiver;
+    private ProgressBar pbRegistration;
+    private TextView tvInformation;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -18,14 +37,28 @@ public class EasyTestActivity extends AppCompatActivity {
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
-        FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
-        fab.setOnClickListener(new View.OnClickListener() {
+        pbRegistration = (ProgressBar) findViewById(R.id.registrationProgressBar);
+        registrationBroadcastReceiver = new BroadcastReceiver() {
             @Override
-            public void onClick(View view) {
-                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                        .setAction("Action", null).show();
+            public void onReceive(Context context, Intent intent) {
+                pbRegistration.setVisibility(ProgressBar.GONE);
+                SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+                boolean sentToken = sharedPreferences.getBoolean(EasyTestPreferences.SENT_TOKEN_TO_SERVER, false);
+                if (sentToken) {
+                    tvInformation.setText(getString(R.string.gcm_send_message));
+                } else {
+                    tvInformation.setText(getString(R.string.token_error_message));
+                }
             }
-        });
+        };
+        tvInformation = (TextView) findViewById(R.id.tv_information_loading);
+        registerReceiver();
+
+        if (checkPlayServices()) {
+            // Start IntentService to register this application with GCM.
+            Intent intent = new Intent(this, RegistrationIntentService.class);
+            startService(intent);
+        }
     }
 
     @Override
@@ -48,5 +81,41 @@ public class EasyTestActivity extends AppCompatActivity {
         }
 
         return super.onOptionsItemSelected(item);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        registerReceiver();
+    }
+
+    @Override
+    protected void onPause() {
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(registrationBroadcastReceiver);
+        isReceiverRegistered = false;
+        super.onPause();
+    }
+
+    private void registerReceiver(){
+        if(!isReceiverRegistered) {
+            LocalBroadcastManager.getInstance(this).registerReceiver(registrationBroadcastReceiver,
+                    new IntentFilter(EasyTestPreferences.REGISTRATION_COMPLETE));
+            isReceiverRegistered = true;
+        }
+    }
+
+    private boolean checkPlayServices() {
+        GoogleApiAvailability apiAvailability = GoogleApiAvailability.getInstance();
+        int resultCode = apiAvailability.isGooglePlayServicesAvailable(this);
+        if (resultCode != ConnectionResult.SUCCESS) {
+            if (apiAvailability.isUserResolvableError(resultCode)) {
+                apiAvailability.getErrorDialog(this, resultCode, PLAY_SERVICES_RESOLUTION_REQUEST).show();
+            } else {
+                Log.i(EasyTestActivity.class.getSimpleName(), "This device is not supported.");
+                finish();
+            }
+            return false;
+        }
+        return true;
     }
 }
